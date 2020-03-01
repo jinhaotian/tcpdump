@@ -103,7 +103,7 @@ public class Indexer {
 				    }).build();
 			
 			for (String id:requestMap.keySet() ) {
-				System.out.println(id);
+				System.out.print(id);
 				Map<String,String> header = new TreeMap<String,String>();
 				if (headerMap.get(id) != null) {
 					header.putAll(headerMap.get(id));
@@ -130,6 +130,7 @@ public class Indexer {
 					continue;
 				}
 				elasticClient.performRequest(request);
+				System.out.println(":done");
 			}
 			elasticClient.close();
 		} catch (IOException e) {
