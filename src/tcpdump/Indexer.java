@@ -222,6 +222,9 @@ public class Indexer {
 //			}else
 			line = reader.readLine();
 		}
+		if(header.get(trueClientIP)!=null) {
+			header.put(trueClientIP,"notexists");
+		}
 		headerMap.put(id,header);
 		return line;
 	}
