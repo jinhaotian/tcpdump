@@ -12,6 +12,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.TreeMap;
 
 import org.apache.http.Header;
@@ -33,7 +34,7 @@ public class Indexer {
 	private static Map<String,Map<String,String>> headerMap = new HashMap<String,Map<String,String>>();
 	private static Map<String,Map<String,String>> respMap = new HashMap<String,Map<String,String>>();
 	static DateFormat dateFormat = new SimpleDateFormat("dd MMM yyy HH:mm:ss z", Locale.US);
-	static DateFormat isoDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+	static DateFormat isoDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");//new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
 	
 	public static void main(String[] args) {
 		String filename = args[0];
