@@ -179,9 +179,7 @@ public class Indexer {
 		}
 		
 		while (line != null && !line.contains(" > ")) {
-			if(line.contains("662fae0817944a4baa8c7d8942998baf")) {
-				System.out.print("what");
-			}
+			
 			if (line.contains(xRequestID)) {
 				header.put(xRequestID.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
 			}else if (line.contains(trueClientIP)||line.contains("True-Client-IP")) {
@@ -194,7 +192,7 @@ public class Indexer {
 				header.put(authorization.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
 			}else if (line.contains(xRdsDevKey)||line.contains("x-rds-devkey")) {
 				header.put(xRdsDevKey.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(DATE)) {
+			}else if (line.contains(DATE)||line.contains("date:")) {
 				String date =line.split(", ")[1];
 				Date calendar =dateFormat.parse(date);
 //				String[] dates = date.split("\\s+");
