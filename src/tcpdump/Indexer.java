@@ -103,8 +103,7 @@ public class Indexer {
 				        }
 				    }).build();
 			int total = requestMap.size();
-			int finished = 0;
-			for (String id:requestMap.keySet() ) {
+				for (String id:requestMap.keySet() ) {
 				System.out.print(id);
 				Map<String,String> header = new TreeMap<String,String>();
 				if (headerMap.get(id) != null) {
@@ -132,9 +131,8 @@ public class Indexer {
 					continue;
 				}
 				elasticClient.performRequest(request);
-				finished ++;
 				total--;
-				System.out.println(":done: "+finished+"left:"+total);
+				System.out.println(":done:left:"+total);
 			}
 			elasticClient.close();
 		} catch (IOException e) {
