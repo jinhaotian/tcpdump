@@ -148,12 +148,22 @@ public class Indexer {
 //			System.out.println("what is wrong");
 //		}
 		boolean populate = false;
-		Map<String,String> header = new HashMap<String,String>();
+		
+		Map<String,String> header = respMap.get(id);
+		if(header==null) {
+				header = new HashMap<String,String>();
+		}
 		while (line != null && !line.contains(" > ")) {
-			if (line.contains("HTTP")&&respMap.get(id)==null) {
-				Integer hS = Integer.parseInt(line.split("HTTP")[1].split("\\s+")[1]);
-				header.put("status", hS.toString());
-				populate = true;
+			if (line.contains("HTTP")&&header.get("status")==null) {
+				Integer hS;
+				try {
+					hS = Integer.parseInt(line.split("HTTP")[1].split("\\s+")[1]);
+					header.put("status", hS.toString());
+					populate = true;
+				} catch (NumberFormatException e) {
+					System.out.println(line);
+				}
+				
 			}
 			line = reader.readLine();
 		}
