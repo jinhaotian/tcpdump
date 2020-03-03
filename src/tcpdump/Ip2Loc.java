@@ -22,6 +22,9 @@ public class Ip2Loc {
 		target = client.target(link);
 	}
 	public String getCountryFromIP(String ip) {
+		if("notexists".equals(ip)||"UNKNOWN".equals(ip)) {
+			return "UNKNOWN";
+		}
 		if(cache.get(ip)!=null) {
 			return cache.get(ip);
 		}

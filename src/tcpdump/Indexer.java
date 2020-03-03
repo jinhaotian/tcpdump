@@ -102,6 +102,13 @@ public class Indexer {
 			while(workingQueue.size()>0) {
 				continue;
 			}
+			esIndexer.stop = true;
+			try {
+				esIndexer.join();
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 			
 //			Gson gsonObj = new Gson();
 //			final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
