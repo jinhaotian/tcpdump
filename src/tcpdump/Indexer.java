@@ -3,6 +3,7 @@ package tcpdump;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -10,10 +11,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Queue;
 import java.util.TimeZone;
 import java.util.TreeMap;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.http.Header;
 import org.apache.http.HttpHost;
@@ -31,110 +36,117 @@ import org.elasticsearch.client.RestClientBuilder.HttpClientConfigCallback;
 import com.google.gson.Gson;
 
 public class Indexer {
-	private static Map<String,Map<String,String>> headerMap = new HashMap<String,Map<String,String>>();
-	private static Map<String,Map<String,String>> respMap = new HashMap<String,Map<String,String>>();
-	static DateFormat dateFormat = new SimpleDateFormat("dd MMM yyy HH:mm:ss z", Locale.US);
-	static DateFormat isoDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");//new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+	private static Map<String, Map<String, String>> headerMap = new ConcurrentHashMap <String, Map<String, String>>();
+	private static Map<String, Map<String, String>> respMap = new ConcurrentHashMap <String, Map<String, String>>();
+	static DateFormat dateFormat = new SimpleDateFormat("dd MMM yyy HH:mm:ss.SSS z", Locale.US);
+	static DateFormat isoDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+	static Queue<String> workingQueue  = new ArrayBlockingQueue<String>(1024);
+	static Ip2Loc ip2loc = new Ip2Loc();
 	
 	public static void main(String[] args) {
 		String filename = args[0];
 		String indexName = args[1];
 		String serverName = args[2];
 		BufferedReader reader;
-		Map<String,String> requestMap = new TreeMap<String,String>();
-		Map<String,String> responseMap = new HashMap<String,String>();
-		
+		Map<String, String> requestMap = new TreeMap<String, String>();
+		Map<String, String> responseMap = new HashMap<String, String>();
+		ESIndexer esIndexer = new ESIndexer(serverName,indexName);
 		try {
-			reader = new BufferedReader(new FileReader(filename));
+			esIndexer.start();
+			
+			if("console".equals(filename)) {
+				reader = new BufferedReader(new InputStreamReader(System.in));
+			}else {
+				reader = new BufferedReader(new FileReader(filename));
+			}
 			String line = reader.readLine();
 			int i = 0;
 			while (line != null) {
 				if (line.contains(" > ")) {
 					i++;
-					if(i % 100 == 0) {
-						System.out.println(i);
-					}else {
-						System.out.print(".");
-					}
+//					if (i % 100 == 0) {
+//						System.out.println(i);
+//					} else {
+//						System.out.print(".");
+//					}
 
 					String[] fields = line.split("\\s+");
-					if (fields[4] != null && fields[4].charAt(fields[4].length()-1)==':') {
-						fields[4] = fields[4].substring(0,fields[4].length()-1);
+					if (fields[4] != null && fields[4].charAt(fields[4].length() - 1) == ':') {
+						fields[4] = fields[4].substring(0, fields[4].length() - 1);
 					}
-					
-					String id ;
+
+					String id;
 					if (fields[4].contains("rds-authserver-prod")) {
-						id =  fields[4] +"--"+ fields[2];
+						id = fields[4] + "--" + fields[2];
 						String time = fields[0];
 						ids.put(id, time);
 						id = id + "--" + time;
-						requestMap.put(id , line);
-						line = handleRequest(id,reader);
+						requestMap.put(id, line);
+						line = handleRequest(line,id, reader);
 						continue;
-					}else if (fields[2].contains("rds-authserver-prod")) {
-						id =  fields[2]+"--"+ fields[4];
-						if(ids.get(id)==null) {
+					} else if (fields[2].contains("rds-authserver-prod")) {
+						id = fields[2] + "--" + fields[4];
+						if (ids.get(id) == null) {
 							System.out.println("abc");
 						}
-						id = id + "--"+ ids.get(id);
+						id = id + "--" + ids.get(id);
 						responseMap.put(id, line);
-						line = handleRespone(id,reader);
+						line = handleRespone(line,id, reader);
 						continue;
 					}
 				}
-								line = reader.readLine();
+				line = reader.readLine();
 			}
 			reader.close();
 			System.out.println(".");
-			Gson gsonObj = new Gson();
-			final CredentialsProvider credentialsProvider =
-				    new BasicCredentialsProvider();
-				credentialsProvider.setCredentials(AuthScope.ANY,
-				    new UsernamePasswordCredentials("elastic", "changeme"));
-				
-			RestClient elasticClient =   RestClient.builder(
-				    new HttpHost(serverName, 9200, "http"))
-					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
-				        @Override
-				        public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
-				                HttpAsyncClientBuilder httpClientBuilder) {
-				            return httpClientBuilder
-				                .setDefaultCredentialsProvider(credentialsProvider);
-				        }
-				    }).build();
-			int total = requestMap.size();
-				for (String id:requestMap.keySet() ) {
-				System.out.print(id);
-				Map<String,String> header = new TreeMap<String,String>();
-				if (headerMap.get(id) != null) {
-					header.putAll(headerMap.get(id));
-				}
-				if (respMap.get(id) != null) {
-					header.putAll(respMap.get(id));
-				}else {
-					System.out.println("abc");
-				}
-//				for(String hkey: header.keySet()){
-//					System.out.print(hkey+":"+header.get(hkey)+",");
-//				}
-				String entity = gsonObj.toJson(header);
-				Request request = new Request("POST","/"+indexName+"/_doc/"+id);
-				request.setJsonEntity(entity);
-				if(header.get("status")==null) {
-					System.out.println("what is wrong");
-				}
-				if(id.contains("rds-greenlight-prod")||
-						id.contains("platformqa-prod")) {
-					continue;
-				}
-				if(header.get("url")!=null && header.get("url").contains("/authserver/system/version")) {
-					continue;
-				}
-				elasticClient.performRequest(request);
-				total--;
-				System.out.println(":done:left:"+total);
+			while(workingQueue.size()>0) {
+				continue;
 			}
-			elasticClient.close();
+			
+//			Gson gsonObj = new Gson();
+//			final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+//			credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
+//
+//			RestClient elasticClient = RestClient.builder(new HttpHost(serverName, 9200, "http"))
+//					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
+//						@Override
+//						public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
+//								HttpAsyncClientBuilder httpClientBuilder) {
+//							return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+//						}
+//					}).build();
+//			int total = requestMap.size();
+//			for (String id : requestMap.keySet()) {
+//				System.out.print(id);
+//				Map<String, String> header = new TreeMap<String, String>();
+//				if (headerMap.get(id) != null) {
+//					header.putAll(headerMap.get(id));
+//				}
+//				if (respMap.get(id) != null) {
+//					header.putAll(respMap.get(id));
+//				} else {
+//					System.out.println("abc");
+//				}
+////				for(String hkey: header.keySet()){
+////					System.out.print(hkey+":"+header.get(hkey)+",");
+////				}
+//				String entity = gsonObj.toJson(header);
+//				Request request = new Request("POST", "/" + indexName + "/_doc/" + id);
+//				request.setJsonEntity(entity);
+//				if (header.get("status") == null) {
+//					System.out.println("what is wrong");
+//				}
+//				if (id.contains("rds-greenlight-prod") || id.contains("platformqa-prod")) {
+//					continue;
+//				}
+//				if (header.get("url") != null && header.get("url").contains("/authserver/system/version")) {
+//					continue;
+//				}
+//				elasticClient.performRequest(request);
+//				total--;
+//				System.out.println(":done:left:" + total);
+//			}
+//			elasticClient.close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		} catch (ParseException e) {
@@ -142,17 +154,30 @@ public class Indexer {
 			e.printStackTrace();
 		}
 	}
-   
-	private static String handleRespone(String id, BufferedReader reader) throws IOException {
+
+	private static String handleRespone(String respLine,String id, BufferedReader reader) throws IOException {
+		String time =respLine.split("\\s")[0]; 
 		String line = reader.readLine();
-//		if(id.contains("rds-authserver-prod-1205.sea2.rhapsody.com.webcache--sea2-lbprod.net.rhapsody.com.10885--06:22:08.645242")) {
+//		if(id.contains("rds-authserver-prod-1206.sea2.rhapsody.com.webcache--sea2-lbprod.net.rhapsody.com.50505--10:30:56.923431")) {
 //			System.out.println("what is wrong");
 //		}
 		boolean populate = false;
 		
 		Map<String,String> header = respMap.get(id);
+		Map<String,String> reqHeader = headerMap.get(id);
+		if(reqHeader==null) {
+			while (line != null && !line.contains(" > ")) {
+				line = reader.readLine();
+			}
+			return line;
+		}
 		if(header==null) {
-				header = new HashMap<String,String>();
+			header = new HashMap<String,String>();
+		}else {
+			while (line != null && !line.contains(" > ")) {
+				line = reader.readLine();
+			}
+			return line;
 		}
 		while (line != null && !line.contains(" > ")) {
 			if (line.contains("HTTP")&&header.get("status")==null) {
@@ -165,15 +190,46 @@ public class Indexer {
 					System.out.println(line);
 				}
 				
+			}else if (line.contains(DATE)||line.contains("date:")) {
+				try {
+					String date =line.split(", ")[1];
+					date = date.substring(0,12)+time.substring(0,12)+" GMT";
+					Date calendar =dateFormat.parse(date);
+					header.put("f_date", isoDateFormat.format(calendar));
+				} catch (ParseException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 			}
 			line = reader.readLine();
 		}
+		if(reqHeader.get("date")==null) {
+			reqHeader.put("date", header.get("f_date"));
+		}
+		
 		if(populate) {
+			try {
+				if(header.get("f_date")!=null) {
+					Date start = isoDateFormat.parse(reqHeader.get("date"));
+					Date end = isoDateFormat.parse(header.get("f_date"));
+					header.put("took", String.valueOf(end.getTime()-start.getTime()));
+				}
+			} catch (ParseException e) {
+				System.out.print("");
+			}
 			respMap.put(id,header);	
+			
+		}
+		
+		
+		boolean inserted = (workingQueue.offer(id));
+		while (!inserted) {
+			inserted = (workingQueue.offer(id));
 		}
 		return line;
 	}
-	private static Map<String,String> ids = new HashMap<String,String>();
+
+	private static Map<String, String> ids = new HashMap<String, String>();
 	public static final String xRdsAuthentication = "X-RDS-Authentication";
 	public static final String xRequestID = "x-request-id";
 	public static final String trueClientIP = "true-client-ip";
@@ -182,50 +238,54 @@ public class Indexer {
 	public static final String authorization = "authorization";
 	public static final String xRdsDevKey = "X-RDS-DevKey";
 	public static final String DATE = "Date:";
-	
-	private static String handleRequest(String id, BufferedReader reader) throws IOException, ParseException {
+
+	private static String handleRequest(String reqLine,String id, BufferedReader reader) throws IOException, ParseException {
+		String time =reqLine.split("\\s")[0]; 
 		String line = reader.readLine();
-		Map<String,String> header = headerMap.get(id);
-				new TreeMap<String,String>();
-		if(header==null) {
-			header = new TreeMap<String,String>();
+		Map<String, String> header = headerMap.get(id);
+		new TreeMap<String, String>();
+		if (header == null) {
+			header = new TreeMap<String, String>();
 		}
-		
+
 		while (line != null && !line.contains(" > ")) {
-			
+
 			if (line.contains(xRequestID)) {
 				header.put(xRequestID.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(trueClientIP)||line.contains("True-Client-IP")) {
+			} else if (line.contains(trueClientIP) || line.contains("True-Client-IP")) {
 				header.put(trueClientIP.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(xClientIp)) {
+			} else if (line.contains(xClientIp)) {
 				header.put(xClientIp.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(userAgent)||line.contains("User-Agent")) {
+			} else if (line.contains(userAgent) || line.contains("User-Agent")) {
 				header.put(userAgent.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(authorization)||line.contains("Authorization")) {
+			} else if (line.contains(authorization) || line.contains("Authorization")) {
 				header.put(authorization.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(xRdsDevKey)||line.contains("x-rds-devkey")) {
+			} else if (line.contains(xRdsDevKey) || line.contains("x-rds-devkey")) {
 				header.put(xRdsDevKey.toLowerCase(), StringUtils.strip(line.split(": ")[1]));
-			}else if (line.contains(DATE)||line.contains("date:")) {
-				String date =line.split(", ")[1];
-				Date calendar =dateFormat.parse(date);
-//				String[] dates = date.split("\\s+");
-//				Calendar calendar = Calendar.getInstance();
-//				calendar.set(Calendar.YEAR, value);
-				header.put("date", isoDateFormat.format(calendar));
-			}else if (line.contains("HTTP")) {
-				if(line.contains("authserver")) {
-					if(line.contains("GET")) {
+			} else if (line.contains(DATE) || line.contains("date:")) {
+				try {
+					String date = line.split(", ")[1];
+					date = date.substring(0,12)+time.substring(0,12)+" GMT";;
+					Date calendar = dateFormat.parse(date);
+					header.put("date", isoDateFormat.format(calendar));
+				} catch (ParseException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			} else if (line.contains("HTTP")) {
+				if (line.contains("authserver")) {
+					if (line.contains("GET")) {
 						header.put("method", "GET");
 						header.put("url", StringUtils.strip(line.split("GET")[1].split("\\s")[1]));
-					}else if (line.contains("POST")){
+					} else if (line.contains("POST")) {
 						header.put("method", "POST");
 						header.put("url", StringUtils.strip(line.split("POST")[1].split("\\s")[1]));
-					}else if (line.contains("PUT")){
+					} else if (line.contains("PUT")) {
 						header.put("method", "PUT");
 						header.put("url", StringUtils.strip(line.split("PUT")[1].split("\\s")[1]));
 					}
 				}
-			}else if (line.contains("X-Forwarded-For")) {
+			} else if (line.contains("X-Forwarded-For")) {
 				header.put("x-forwarded-for", StringUtils.strip(line.split(": ")[1]));
 			}
 //			if (line.contains(xRdsAuthentication)) {
@@ -233,10 +293,88 @@ public class Indexer {
 //			}else
 			line = reader.readLine();
 		}
-		if(header.get(trueClientIP)==null) {
-			header.put(trueClientIP,"notexists");
+		if (header.get(trueClientIP) == null) {
+			header.put(trueClientIP, "notexists");
+			header.put("country","notexists");
+		}else {
+			String country = ip2loc.getCountryFromIP(header.get(trueClientIP));
+			header.put("country",country);
 		}
-		headerMap.put(id,header);
+		headerMap.put(id, header);
 		return line;
+	}
+	
+	public static final class ESIndexer extends Thread{
+		Gson gsonObj = new Gson();
+		String indexName;
+		String serverName;
+		boolean stop = false;
+		RestClient elasticClient ;
+		int total =0;
+		ESIndexer(String serverName ,String indexName) {
+			this.serverName = serverName;
+			this.indexName = indexName;
+			final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+			credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
+			elasticClient = RestClient.builder(new HttpHost(serverName, 9200, "http"))
+					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
+						@Override
+						public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
+								HttpAsyncClientBuilder httpClientBuilder) {
+							return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+						}
+					}).build();
+		}
+		@Override
+	    public void run() {
+			Map<String, String> header = new TreeMap<String, String>();
+			String entity ="";
+			while (!stop) {
+				String id  = workingQueue.poll();
+				if (id!=null) {
+					try {
+						header = new TreeMap<String, String>();
+						System.out.print(id);
+						
+						if (headerMap.get(id) != null) {
+							header.putAll(headerMap.get(id));
+						}else {
+							continue;
+						}
+						total++;
+						if (respMap.get(id) != null) {
+							header.putAll(respMap.get(id));
+						} else {
+							System.out.println("No Response");
+						}
+						entity = gsonObj.toJson(header);
+						Request request = new Request("POST", "/" + indexName + "/_doc/" + id);
+						request.setJsonEntity(entity);
+						if (header.get("status") == null) {
+							System.out.println("what is wrong");
+						}
+						if (id.contains("rds-greenlight-prod") || id.contains("platformqa-prod")) {
+							System.out.println(":skip test");
+							continue;
+						}
+						if (header.get("url") != null && header.get("url").contains("/authserver/system/version")) {
+							System.out.println(":skip version");
+							continue;
+						}
+						elasticClient.performRequest(request);
+						System.out.println(":done :" + total);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}finally {
+						headerMap.remove(id);
+						respMap.remove(id);
+					}
+				}else {
+					continue;
+				}
+				
+			}
+	    }
 	}
 }

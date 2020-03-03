@@ -5,4 +5,5 @@ module readpackage {
 	requires org.apache.httpcomponents.httpasyncclient;
 	requires com.google.gson;
 	requires org.apache.commons.lang3;
+	requires javax.ws.rs.api;
 }
