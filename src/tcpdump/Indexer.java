@@ -35,6 +35,7 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.http.message.BasicHeader;
 import org.elasticsearch.client.Request;
+import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.apache.commons.lang3.StringUtils;
@@ -80,11 +81,12 @@ public class Indexer {
 		BufferedReader reader;
 		Map<String, String> requestMap = new TreeMap<String, String>();
 		Map<String, String> responseMap = new HashMap<String, String>();
+		RestClient client = buildClient(serverName);
 		try {
 			//esIndexer.start();
 			ExecutorService executor = Executors.newFixedThreadPool(thread);
-			for (int i = 0; i < 20; i++) {
-	            Runnable worker = new ESIndexer(serverName,indexName,"worker-"+i,markC);
+			for (int i = 0; i < thread; i++) {
+	            Runnable worker = new ESIndexer(serverName,indexName,"worker-"+i,markC,client);
 	            executor.execute(worker);
 	        }
 			if("console".equals(filename)) {
@@ -158,32 +160,12 @@ public class Indexer {
 		int total =0;
 		boolean mark = true;
 		String workerName;
-		ESIndexer(String serverName ,String indexName,String workerName,boolean mark) {
+		ESIndexer(String serverName ,String indexName,String workerName,boolean mark,RestClient client) {
 			this.serverName = serverName;
 			this.indexName = indexName;
 			this.workerName = workerName;
 			this.mark = mark;
-			final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-//			credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
-			
-			Header[] defaultHeaders = new Header[]{new BasicHeader("authorization", "Basic ZWxhc3RpYzpjaGFuZ2VtZQ==")};
-			elasticClient = RestClient.builder(new HttpHost(serverName, 9200, "http"))
-//					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
-//						@Override
-//						public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
-//								HttpAsyncClientBuilder httpClientBuilder) {
-//							return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
-//						}
-//					})
-					.setRequestConfigCallback(
-						    new RestClientBuilder.RequestConfigCallback() {
-						        @Override
-						        public RequestConfig.Builder customizeRequestConfig(
-						                RequestConfig.Builder requestConfigBuilder) {
-						            return requestConfigBuilder.setSocketTimeout(10000); 
-						        }
-					})
-					.setDefaultHeaders(defaultHeaders).build();
+			this.elasticClient = client;
 		}
 		@Override
 	    public void run() {
@@ -227,7 +209,13 @@ public class Indexer {
 							Request request = new Request("POST", "/" + indexName + "/_doc/" + id);
 							request.setJsonEntity(entity);
 							
-							elasticClient.performRequest(request);
+							Response response = elasticClient.performRequest(request);
+							int statusCode = response.getStatusLine().getStatusCode();
+							if(200 != statusCode) {
+								//Try again
+								elasticClient.performRequest(request);
+							}
+							
 							System.out.println(id+ ":done :"+workerName+" "+ + total);
 						} catch (IOException e) {
 							// TODO Auto-generated catch block
@@ -391,5 +379,29 @@ public class Indexer {
 			inserted = (workingQueue.offer(id));
 		}
 		return line;
+	}
+	public static RestClient buildClient(String serverName) {
+//		final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+//		credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
+		
+		Header[] defaultHeaders = new Header[]{new BasicHeader("authorization", "Basic ZWxhc3RpYzpjaGFuZ2VtZQ==")};
+		RestClient elasticClient = RestClient.builder(new HttpHost(serverName, 9200, "http"))
+//				.setHttpClientConfigCallback(new HttpClientConfigCallback() {
+//					@Override
+//					public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
+//							HttpAsyncClientBuilder httpClientBuilder) {
+//						return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+//					}
+//				})
+				.setRequestConfigCallback(
+					    new RestClientBuilder.RequestConfigCallback() {
+					        @Override
+					        public RequestConfig.Builder customizeRequestConfig(
+					                RequestConfig.Builder requestConfigBuilder) {
+					            return requestConfigBuilder.setSocketTimeout(10000).setConnectTimeout(1000);
+					        }
+				})
+				.setDefaultHeaders(defaultHeaders).build();
+		return elasticClient;
 	}
 }
