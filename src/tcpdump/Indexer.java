@@ -30,11 +30,13 @@ import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.http.message.BasicHeader;
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.elasticsearch.client.RestClientBuilder.HttpClientConfigCallback;
@@ -162,15 +164,26 @@ public class Indexer {
 			this.workerName = workerName;
 			this.mark = mark;
 			final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-			credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
+//			credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("elastic", "changeme"));
+			
+			Header[] defaultHeaders = new Header[]{new BasicHeader("authorization", "Basic ZWxhc3RpYzpjaGFuZ2VtZQ==")};
 			elasticClient = RestClient.builder(new HttpHost(serverName, 9200, "http"))
-					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
-						@Override
-						public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
-								HttpAsyncClientBuilder httpClientBuilder) {
-							return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
-						}
-					}).build();
+//					.setHttpClientConfigCallback(new HttpClientConfigCallback() {
+//						@Override
+//						public org.apache.http.impl.nio.client.HttpAsyncClientBuilder customizeHttpClient(
+//								HttpAsyncClientBuilder httpClientBuilder) {
+//							return httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider);
+//						}
+//					})
+					.setRequestConfigCallback(
+						    new RestClientBuilder.RequestConfigCallback() {
+						        @Override
+						        public RequestConfig.Builder customizeRequestConfig(
+						                RequestConfig.Builder requestConfigBuilder) {
+						            return requestConfigBuilder.setSocketTimeout(10000); 
+						        }
+					})
+					.setDefaultHeaders(defaultHeaders).build();
 		}
 		@Override
 	    public void run() {
