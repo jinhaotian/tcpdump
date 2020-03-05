@@ -69,7 +69,7 @@ public class Indexer {
 	public static final String authorization = "authorization";
 	public static final String xRdsDevKey = "X-RDS-DevKey";
 	public static final String DATE = "Date:";
-	 
+	public static String day ="";
 
 	public static void main(String[] args) {
 		StopWatch watch = new StopWatch();
@@ -114,7 +114,7 @@ public class Indexer {
 					}
 
 					String id;
-					if (fields[4].contains("rds-authserver-prod")) {
+					if (fields[4].contains("rds-authserver")) {
 						id = fields[4] + "--" + fields[2];
 						String time = fields[0];
 						ids.put(id, time);
@@ -122,7 +122,7 @@ public class Indexer {
 						requestMap.put(id, line);
 						line = handleRequest(line, id, reader);
 						continue;
-					} else if (fields[2].contains("rds-authserver-prod")) {
+					} else if (fields[2].contains("rds-authserver")) {
 						id = fields[2] + "--" + fields[4];
 						if (ids.get(id) == null) {
 							System.out.println("abc");
@@ -285,7 +285,7 @@ public class Indexer {
 		if (header == null) {
 			header = new TreeMap<String, String>();
 		}
-
+        header.put("time", time);
 		while (line != null && !line.contains(" > ")) {
 
 			try {
@@ -362,6 +362,7 @@ public class Indexer {
 		String time = respLine.split("\\s")[0];
 		String line = reader.readLine();
 		boolean populate = false;
+		
 
 		Map<String, String> header = respMap.get(id);
 		Map<String, String> reqHeader = headerMap.get(id);
@@ -381,10 +382,10 @@ public class Indexer {
 		}
 		while (line != null && !line.contains(" > ")) {
 			try {
-				if (line.contains("HTTP") && header.get("status") == null) {
+				if (line.contains("HTTP/1") && header.get("status") == null) {
 					Integer hS;
 					try {
-						hS = Integer.parseInt(line.split("HTTP")[1].split("\\s+")[1]);
+						hS = Integer.parseInt(line.split("HTTP/1")[1].split("\\s+")[1]);
 						header.put("status", hS.toString());
 						populate = true;
 					} catch (NumberFormatException e) {
@@ -394,6 +395,7 @@ public class Indexer {
 				} else if (line.contains(DATE) || line.contains("date:")) {
 					try {
 						String date = line.split(", ")[1];
+						day = date.substring(0, 12);
 						date = date.substring(0, 12) + time.substring(0, 12) + " GMT";
 						Date calendar = dateFormat.parse(date);
 						header.put("f_date", isoDateFormat.format(calendar));
@@ -408,7 +410,15 @@ public class Indexer {
 			line = reader.readLine();
 		}
 		if (reqHeader.get("date") == null) {
-			reqHeader.put("date", header.get("f_date"));
+			try {
+				Date calendar = dateFormat.parse(day+reqHeader.get("time").substring(0, 12) + " GMT");
+				reqHeader.put("date", isoDateFormat.format(calendar));
+			} catch (ParseException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+				reqHeader.put("date", header.get("f_date"));
+			}
+			
 		}
 
 		if (populate) {
